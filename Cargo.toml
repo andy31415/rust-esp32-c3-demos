@@ -1,0 +1,30 @@
+[package]
+name = "by-template"
+version = "0.1.0"
+authors = ["Andrei Litvin <andy314@gmail.com>"]
+edition = "2018"
+resolver = "2"
+
+[profile.release]
+opt-level = "s"
+
+[profile.dev]
+debug = true # Symbols are nice and they don't increase the size on Flash
+opt-level = "z"
+
+[features]
+default = ["native"]
+native = ["esp-idf-sys/native"]
+
+[dependencies]
+anyhow = "1"
+esp-idf-sys = { version = "0.30.6", features = ["binstart"] }
+esp-idf-svc = "0.37.2"
+esp-idf-hal = "0.33.1"
+embedded-graphics = "0.7"
+ssd1306 = "0.7"
+
+
+[build-dependencies]
+embuild = "0.28"
+anyhow = "1"

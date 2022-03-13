@@ -22,6 +22,7 @@ esp-idf-sys = { version = "0.30.6", features = ["binstart"] }
 esp-idf-svc = "0.37.2"
 esp-idf-hal = "0.33.1"
 embedded-graphics = "0.7"
+embedded-svc = "*"
 ssd1306 = "0.7"
 
 

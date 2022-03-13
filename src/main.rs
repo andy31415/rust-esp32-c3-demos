@@ -1,12 +1,21 @@
-use esp_idf_hal::gpio::Gpio4;
-use esp_idf_hal::gpio::Gpio5;
-use esp_idf_hal::gpio::Unknown;
+use core::time::Duration;
 use esp_idf_sys as _; // If using the `binstart` feature of `esp-idf-sys`, always keep this module imported
 
-use anyhow::Result;
+use esp_idf_hal::gpio::{Gpio4, Gpio5, Unknown};
 use esp_idf_hal::i2c;
 use esp_idf_hal::peripherals::Peripherals;
 use esp_idf_hal::units::FromValueType;
+use esp_idf_svc::netif::EspNetifStack;
+use esp_idf_svc::nvs::EspDefaultNvs;
+use esp_idf_svc::sysloop::EspSysLoopStack;
+use esp_idf_svc::wifi::EspWifi;
+use std::sync::Arc;
+
+use embedded_svc::wifi::{
+    ClientConfiguration, ClientConnectionStatus, ClientIpStatus, ClientStatus, Configuration, Wifi,
+};
+
+use anyhow::Result;
 
 use embedded_graphics::{
     mono_font::{ascii::FONT_6X10, MonoTextStyleBuilder},
@@ -16,7 +25,7 @@ use embedded_graphics::{
 };
 use ssd1306::{prelude::*, I2CDisplayInterface, Ssd1306};
 
-fn display_test(i2c0: i2c::I2C0, scl: Gpio4<Unknown>, sda: Gpio5<Unknown>) -> Result<()> {
+fn display_test(i2c0: i2c::I2C0, scl: Gpio4<Unknown>, sda: Gpio5<Unknown>, ip: &str) -> Result<()> {
     let i2c = i2c::Master::new(
         i2c0,
         i2c::MasterPins {
@@ -43,15 +52,50 @@ fn display_test(i2c0: i2c::I2C0, scl: Gpio4<Unknown>, sda: Gpio5<Unknown>) -> Re
         .draw(&mut display)
         .map_err(|e| anyhow::anyhow!("Txt error: {:?}", e))?;
 
-    Text::with_baseline("Hello Rust!", Point::new(0, 16), text_style, Baseline::Top)
-        .draw(&mut display)
-        .map_err(|e| anyhow::anyhow!("Txt2 error: {:?}", e))?;
+    Text::with_baseline(
+        &format!("IP: {}", ip),
+        Point::new(0, 16),
+        text_style,
+        Baseline::Top,
+    )
+    .draw(&mut display)
+    .map_err(|e| anyhow::anyhow!("Txt2 error: {:?}", e))?;
 
     display
         .flush()
         .map_err(|e| anyhow::anyhow!("Flush error: {:?}", e))?;
 
     Ok(())
+}
+
+fn test_wifi() -> Result<String> {
+    let netif_stack = Arc::new(EspNetifStack::new()?);
+    let sys_look_stack = Arc::new(EspSysLoopStack::new()?);
+    let nvs = Arc::new(EspDefaultNvs::new()?);
+
+    let mut wifi = EspWifi::new(netif_stack, sys_look_stack, nvs)?;
+
+    wifi.set_configuration(&Configuration::Client(ClientConfiguration {
+        ssid: "iot-test".into(),
+        password: "test1234".into(),
+        ..Default::default()
+    }))?;
+
+    wifi.wait_status_with_timeout(Duration::from_secs(30), |s| !s.is_transitional())
+        .map_err(|e| anyhow::anyhow!("Wait timeout: {:?}", e))?;
+
+    let status = wifi.get_status();
+
+    println!("Status: {:?}", status);
+
+    if let ClientStatus::Started(ClientConnectionStatus::Connected(ClientIpStatus::Done(
+        client_settings,
+    ))) = status.0
+    {
+        Ok(format!("{:?}", client_settings.ip))
+    } else {
+        Err(anyhow::anyhow!("Failed to connect in time."))
+    }
 }
 
 fn main() {
@@ -63,10 +107,20 @@ fn main() {
 
     let peripherals = Peripherals::take().unwrap();
 
+    let wifi = test_wifi();
+    let ip = match wifi {
+        Err(e) => {
+            println!("Wifi error: {:?}", e);
+            format!("ERR: {:?}", e)
+        }
+        Ok(s) => s,
+    };
+
     if let Err(e) = display_test(
         peripherals.i2c0,
         peripherals.pins.gpio4,
         peripherals.pins.gpio5,
+        &ip,
     ) {
         println!("Display error: {:?}", e)
     } else {
